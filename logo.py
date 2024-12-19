@@ -15,6 +15,7 @@ class Spark:
         else:
             self.velocity = velocity
             self.distance = 0.0
+        self.direction: str = "in"
 
     def get_position(self):
         return self.path.calculate_position(self.distance)
@@ -64,8 +65,6 @@ class Node:
         self.name = name
         self.rect = rect
         self.paths: [(Path, bool)] = []
-        self.threshold = 1.0
-
 
     def add_start(self, path: Path):
         self.paths.append((path, False))
@@ -76,12 +75,87 @@ class Node:
     def spawn_random_spark(self):
         path = random.choice(self.paths)
         sp = Spark(path[0], 200.0, path[1])
-        return sp
+        return [sp]
 
     def receive_spark(self, spark: Spark):
         return self.spawn_random_spark()
 
 
+class Pin(Node):
+    def receive_spark(self, spark: Spark):
+        # simply consume spark
+        return []
+
+
+class Neuron(Node):
+    def __init__(self, name: str, rect: pygame.Rect):
+        super().__init__(name, rect)
+        self.threshold = 4.0
+        self.charge = 0.0
+
+    def receive_spark(self, spark: Spark):
+        self.charge += 1.0
+        if self.charge >= self.threshold:
+            self.charge = 0.0
+            sparks = []
+            for path in self.paths:
+                sp = Spark(path[0], 200.0, path[1])
+                sparks.append(sp)
+            return sparks
+        return []
+
+
+class BottomNeuron(Node):
+    def __init__(self, name: str, rect: pygame.Rect):
+        super().__init__(name, rect)
+        self.threshold = 4.0
+        self.charge = 0.0
+
+    def receive_spark(self, spark: Spark):
+        self.charge += 1.0
+        if self.charge >= self.threshold:
+            self.charge = 0.0
+            sparks = []
+            for path in self.paths:
+                sp = Spark(path[0], 200.0, path[1])
+                sp.direction = "up"
+                sparks.append(sp)
+            return sparks
+        return []
+
+
+class BiNeuron(Node):
+    def __init__(self, name: str, rect: pygame.Rect):
+        super().__init__(name, rect)
+        self.threshold = 3.0
+        self.charge_up = 0.0
+        self.charge_down = 0.0
+        self.paths_up: [int] = []
+        self.paths_down: [int] = []
+
+    def receive_spark(self, spark: Spark):
+        if spark.direction == "up":
+            self.charge_up += 1.0
+        else:
+            self.charge_down += 1.0
+        sparks = []
+        if self.charge_up >= self.threshold:
+            print("UP")
+            self.charge_up = 0.0
+            for n in self.paths_up:
+                path = self.paths[n]
+                sp = Spark(path[0], 200.0, path[1])
+                sp.direction = "up"
+                sparks.append(sp)
+        if self.charge_down >= self.threshold:
+            print("DOWN")
+            self.charge_down = 0.0
+            for n in self.paths_down:
+                path = self.paths[n]
+                sp = Spark(path[0], 200.0, path[1])
+                sp.direction = "down"
+                sparks.append(sp)
+        return sparks
 
 # 122.96, 133.49 -> 10.53
 
@@ -102,11 +176,10 @@ class Logo:
                     node = spark.path.start
                 else:
                     node = spark.path.end
-                new_spark = node.receive_spark(spark)
-                if new_spark:
+                new_sparks = node.receive_spark(spark)
+                for new_spark in new_sparks:
                     sparks.append(new_spark)
         self.sparks = sparks
-
 
     def go(self):
         num = random.choice(range(8))
@@ -117,19 +190,19 @@ class Logo:
     def add_hole(self, name: str, pos: (float, float)):
         diameter = 10.53
         r = pygame.Rect(pos[0] - diameter/2, pos[1] - diameter/2, diameter, diameter)
-        node = Node(name, r)
+        node = Pin(name, r)
         self.nodes.append(node)
         return node
 
     def add_letter(self, name: str, rect: pygame.Rect):
-        node = Node(name, rect)
+        node = BiNeuron(name, rect)
         self.nodes.append(node)
         return node
 
-    def add_bobble(self, name: str, pos: (float, float)):
+    def add_bobble(self, name: str, pos: (float, float), clazz: type=BiNeuron):
         diameter = 38.995
         r = pygame.Rect(pos[0], pos[1], diameter, diameter)
-        node = Node(name, r)
+        node = clazz(name, r)
         self.nodes.append(node)
         return node
 
@@ -158,7 +231,11 @@ class Logo:
         t6 = self.add_hole("pin_t6", (277.731, 77.035))
         # Letters
         lt0 = self.add_letter("lt0", pygame.Rect(87.722, 110.160, 62.453, 44.800))
+        lt0.paths_up = [3, 4]
+        lt0.paths_down = [5]
         lt1 = self.add_letter("lt1", pygame.Rect(148.035, 122.373, 57.227, 32.587))
+        lt0.paths_up = [0]
+        lt0.paths_down = [1, 2]
         lt2 = self.add_letter("lt2", pygame.Rect(205.951, 122.373, 57.227, 32.587))
         lt3 = self.add_letter("lt3", pygame.Rect(260.401, 122.373, 62.453, 44.800))
         lt4 = self.add_letter("lt4", pygame.Rect(59.389, 175.707, 58.507, 32.587))
@@ -171,9 +248,9 @@ class Logo:
         b1 = self.add_bobble("b1", (142.140, 233.500))
         b2 = self.add_bobble("b2", (202.865, 233.500))
         b3 = self.add_bobble("b3", (263.589, 233.500))
-        b4 = self.add_bobble("b4", (111.282, 295.108))
-        b5 = self.add_bobble("b5", (172.007, 295.108))
-        b6 = self.add_bobble("b6", (232.732, 295.108))
+        b4 = self.add_bobble("b4", (111.282, 295.108), BottomNeuron)
+        b5 = self.add_bobble("b5", (172.007, 295.108), BottomNeuron)
+        b6 = self.add_bobble("b6", (232.732, 295.108), BottomNeuron)
         # Paths
         # - from left pins
         self.add_path(l0, t0, (
@@ -534,3 +611,4 @@ class Logo:
             (260.320, 298.451),
         ))
         print("Paths:", len(self.paths))
+        print("LT0:", lt0.paths, lt0.paths_up, lt0.paths_down)
